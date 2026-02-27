@@ -16,7 +16,8 @@
         "backgroundColor": "#ffffff"
       },
       "permissions": [
-        "NOTIFICATIONS"
+        "NOTIFICATIONS",
+        "VIBRATE"
       ],
       "package": "com.harsh2005gosaliya.hostelmealping"
     },
