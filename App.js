@@ -17,8 +17,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
-import axios from 'axios';
-
 // For PC testing, use localhost. For phone testing, use your IP.
 const API_BASE_URL = 'https://web-production-030ea.up.railway.app';
 
@@ -105,9 +103,13 @@ export default function App() {
 
   const registerUserOnBackend = async () => {
     try {
-      await axios.post(`${API_BASE_URL}/register`, {
-        name: userName,
-        push_token: expoPushToken || `web-${Math.random().toString(36).substr(2, 9)}`
+      await fetch(`${API_BASE_URL}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: userName,
+          push_token: expoPushToken || `web-${Math.random().toString(36).substr(2, 9)}`
+        })
       });
     } catch (error) {
       console.error('Registration failed');
@@ -116,9 +118,10 @@ export default function App() {
 
   const fetchCurrentMeal = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/meal/current`);
-      if (response.data.status !== 'no_active_meal') {
-        setCurrentMeal(response.data);
+      const response = await fetch(`${API_BASE_URL}/meal/current`);
+      const data = await response.json();
+      if (data.status !== 'no_active_meal') {
+        setCurrentMeal(data);
       } else {
         setCurrentMeal(null);
       }
@@ -130,9 +133,13 @@ export default function App() {
   const triggerMeal = async (type) => {
     setLoading(true);
     try {
-      await axios.post(`${API_BASE_URL}/meal`, {
-        meal_type: type,
-        creator_name: userName
+      await fetch(`${API_BASE_URL}/meal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meal_type: type,
+          creator_name: userName
+        })
       });
       fetchCurrentMeal();
     } catch (error) {
@@ -150,9 +157,13 @@ export default function App() {
       }
       if (!activeName) return;
 
-      await axios.post(`${API_BASE_URL}/meal/rsvp`, {
-        name: activeName,
-        status: status
+      await fetch(`${API_BASE_URL}/meal/rsvp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: activeName,
+          status: status
+        })
       });
       setNotificationModalVisible(false);
       fetchCurrentMeal();
