@@ -20,7 +20,7 @@ import Constants from 'expo-constants';
 import axios from 'axios';
 
 // For PC testing, use localhost. For phone testing, use your IP.
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://web-production-030ea.up.railway.app';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
