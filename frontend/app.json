@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Hostel Meal Ping",
+    "slug": "hostel-meal-ping",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": [
+        "NOTIFICATIONS"
+      ],
+      "package": "com.harsh2005gosaliya.hostelmealping"
+    },
+    "web": {
+      "favicon": ""
+    },
+    "extra": {
+      "eas": {
+        "projectId": "fe733b19-9fbb-4c83-89d7-93828a9e9c62"
+      }
+    }
+  }
+}
