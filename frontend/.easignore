@@ -1,8 +1,0 @@
-node_modules
-.expo
-.git
-backend
-Procfile
-Dockerfile
-README.md
-implementation_plan.md
