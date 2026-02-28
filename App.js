@@ -26,7 +26,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 // For PC/emulator testing, use localhost. For phone testing, use your laptop's LAN IP (e.g. http://192.168.x.x:8000).
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://hostelmealping-ipl9gkxdb-johnsnows-projects-7cbf6ca3.vercel.app';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
