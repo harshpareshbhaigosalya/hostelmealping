@@ -16,34 +16,44 @@ let activeMeal = null;
 // --- EXPO PUSH NOTIFICATION ---
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
-async function broadcastPush(tokens, title, body, data = {}) {
-    if (!tokens || tokens.length === 0) return;
-
-    const messages = tokens
-        .filter(token => token && token.startsWith('ExponentPushToken'))
-        .map(token => ({
-            to: token,
-            title,
-            body,
-            data,
-            sound: 'default',
-            priority: 'high',
-            categoryIdentifier: 'MEAL_INVITATION',
-            channelId: 'meal-pings',
-        }));
-
-    if (messages.length === 0) return;
-
+async function sendPushBatch(messages) {
     try {
         const resp = await fetch(EXPO_PUSH_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
             body: JSON.stringify(messages),
         });
         console.log(`[Push] Broadcast status: ${resp.status}`);
     } catch (err) {
         console.error(`[Push] Notification error: ${err.message}`);
     }
+}
+
+async function broadcastPush(tokens, title, body, data = {}) {
+    if (!tokens || tokens.length === 0) return;
+
+    const validTokens = tokens.filter(t => t && t.startsWith('ExponentPushToken'));
+    if (validTokens.length === 0) return;
+
+    const makeMessages = (ringNum) => validTokens.map(token => ({
+        to: token,
+        title,
+        body,
+        data: { ...data, ringNum },
+        sound: 'default',
+        priority: 'high',
+        categoryIdentifier: 'MEAL_INVITATION',
+        channelId: 'meal-pings',
+        _contentAvailable: true,
+    }));
+
+    // Send 3 bursts of notifications staggered by 2 seconds for a long ring effect
+    sendPushBatch(makeMessages(1));
+    setTimeout(() => sendPushBatch(makeMessages(2)), 2000);
+    setTimeout(() => sendPushBatch(makeMessages(3)), 4000);
 }
 
 // --- API ROUTES ---

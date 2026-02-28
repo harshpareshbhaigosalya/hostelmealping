@@ -1,6 +1,5 @@
 {
   "expo": {
-    "owner": "heymodi25-ai",
     "name": "Hostel Meal Ping",
     "slug": "hostel-meal-ping",
     "version": "1.0.0",
@@ -21,17 +20,51 @@
       },
       "permissions": [
         "NOTIFICATIONS",
-        "VIBRATE"
+        "VIBRATE",
+        "USE_FULL_SCREEN_INTENT",
+        "RECEIVE_BOOT_COMPLETED",
+        "WAKE_LOCK"
       ],
       "package": "com.harsh2005gosaliya.hostelmealping"
     },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "sounds": [],
+          "defaultChannel": {
+            "name": "Meal Pings",
+            "channelId": "meal-pings",
+            "importance": 5,
+            "vibrationPattern": [
+              0,
+              1000,
+              500,
+              1000,
+              500,
+              1000,
+              500,
+              1000,
+              500,
+              1000
+            ],
+            "enableVibrate": true,
+            "sound": "default",
+            "enableLights": true,
+            "lockscreenVisibility": 1,
+            "bypassDnd": true
+          }
+        }
+      ]
+    ],
     "web": {
       "favicon": ""
     },
     "extra": {
       "eas": {
-        "projectId": "2520c36a-9878-4649-986a-9dd923d40e1f"
+        "projectId": "619564e3-28a6-45a3-b116-24350fa77f95"
       }
-    }
+    },
+    "owner": "heymodi25-ais-organization"
   }
 }

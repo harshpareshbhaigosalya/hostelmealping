@@ -46,6 +46,7 @@ export default function App() {
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
   const [receivedData, setReceivedData] = useState(null);
   const ringInterval = useRef(null);
+  const lastMealJson = useRef('');
 
   const notificationListener = useRef();
   const responseListener = useRef();
@@ -78,7 +79,7 @@ export default function App() {
     fetchCurrentMeal();
     const interval = setInterval(() => {
       fetchCurrentMeal();
-    }, 3000); // Faster polling for better real-time feel
+    }, 5000);
 
     return () => {
       if (notificationListener.current) Notifications.removeNotificationSubscription(notificationListener.current);
@@ -88,6 +89,9 @@ export default function App() {
   }, []);
 
   const updateMealState = (data) => {
+    const json = JSON.stringify(data);
+    if (json === lastMealJson.current) return; // No change, skip re-render
+    lastMealJson.current = json;
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setCurrentMeal(data);
   };
@@ -158,7 +162,7 @@ export default function App() {
     }
   };
 
-  const triggerMeal = async (type) => {
+  const sendMealRequest = async (type) => {
     setLoading(true);
     try {
       const resp = await fetch(`${API_BASE_URL}/meal`, {
@@ -172,11 +176,27 @@ export default function App() {
       if (!resp.ok) {
         throw new Error('Server returned an error');
       }
+      lastMealJson.current = ''; // Force refresh on next poll
       fetchCurrentMeal();
     } catch (error) {
       Alert.alert('Connection Error', 'Could not reach the server. Please check your internet or if the backend is running.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const triggerMeal = (type) => {
+    if (currentMeal && currentMeal.active) {
+      Alert.alert(
+        'Replace Meal?',
+        `There's already an active ${currentMeal.meal_type}. Start ${type} instead?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Yes, Replace', onPress: () => sendMealRequest(type) }
+        ]
+      );
+    } else {
+      sendMealRequest(type);
     }
   };
 
@@ -245,29 +265,43 @@ export default function App() {
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
       if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
+        const { status } = await Notifications.requestPermissionsAsync({
+          android: {
+            allowAlert: true,
+            allowBadge: true,
+            allowSound: true,
+            allowAnnouncements: true,
+          },
+        });
         finalStatus = status;
       }
-      if (finalStatus !== 'granted') return null;
+      if (finalStatus !== 'granted') {
+        console.log('Push notification permission not granted');
+        return null;
+      }
 
       try {
         token = (await Notifications.getExpoPushTokenAsync({
           projectId: Constants.expoConfig?.extra?.eas?.projectId,
         })).data;
+        console.log('Push token:', token);
       } catch (e) {
         console.log("Push token error", e);
       }
+    } else {
+      console.log('Must use physical device for push notifications');
     }
 
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('meal-pings', {
         name: 'Meal Pings',
         importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000],
+        vibrationPattern: [0, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000],
         lightColor: '#FF6EEF',
         lockscreenVisibility: Notifications.AndroidLockscreenVisibility.PUBLIC,
         bypassDnd: true,
         enableVibration: true,
+        enableLights: true,
         showBadge: true,
         sound: 'default',
       });
