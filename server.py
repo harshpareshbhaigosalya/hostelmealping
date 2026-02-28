@@ -1,6 +1,7 @@
 import httpx
 import os
 import logging
+import asyncio
 from fastapi import FastAPI, HTTPException, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -8,12 +9,13 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 
+# Logging setup for Railway console
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Hostel Meal Ping API")
 
-# Aggressive CORS for both Mobile and Web Testing
+# Broadest possible CORS for testing on both localhost:8081 and mobile
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,22 +24,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- MODELS ---
-class UserRegistration(BaseModel):
-    name: str
-    push_token: Optional[str] = None
+# --- IN-MEMORY REPLACEMENT FOR DATABASE ---
+# This ensures it survives for as long as the server is running
+users_db = {} 
+active_meal = None
 
-class RSVPRequest(BaseModel):
-    name: str
-    status: str
-
-# In-memory storage (No Database Needed)
-memory_users = {} 
-memory_meal = None
-
+# --- EXPO NOTIFICATION LOGIC ---
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
-async def send_push_notifications(tokens: List[str], title: str, body: str, data: dict = None):
+async def broadcast_push(tokens: List[str], title: str, body: str, data: dict = None):
     if not tokens: return
     messages = []
     for token in tokens:
@@ -51,82 +46,68 @@ async def send_push_notifications(tokens: List[str], title: str, body: str, data
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(EXPO_PUSH_URL, json=messages)
-            logger.info(f"Push response: {resp.status_code}")
+            logger.info(f"Broadcast: {resp.status_code}")
         except Exception as e:
-            logger.error(f"Push notification failed: {e}")
+            logger.error(f"Notification error: {e}")
+
+# --- API ROUTES ---
 
 @app.get("/")
-async def health_check():
-    return {"status": "ok", "mode": "in-memory", "timestamp": datetime.utcnow()}
+async def root():
+    return {"status": "online", "message": "Hostel Meal Ping is active", "time": datetime.utcnow().isoformat()}
 
 @app.post("/register")
-async def register_user(user: UserRegistration):
-    try:
-        registration = {
-            "name": user.name,
-            "push_token": user.push_token,
-            "updated_at": datetime.utcnow().isoformat()
-        }
-        memory_users[user.name] = registration
-        logger.info(f"Registered user: {user.name}")
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Registration error: {e}")
-        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+async def register(name: str = Body(..., embed=True), push_token: str = Body(None, embed=True)):
+    users_db[name] = {"token": push_token, "time": datetime.utcnow()}
+    logger.info(f"Registered: {name}")
+    return {"status": "ok"}
 
 @app.post("/meal")
-async def create_meal(meal_type: str = Body(..., embed=True), creator_name: str = Body(..., embed=True)):
-    global memory_meal
-    try:
-        memory_meal = {
-            "meal_type": meal_type,
-            "creator_name": creator_name,
-            "created_at": datetime.utcnow().isoformat(),
-            "joining": [],
-            "not_coming": [],
-            "active": True
-        }
-        
-        # Notify others
-        tokens = [u["push_token"] for u in memory_users.values() if u.get("push_token") and u["name"] != creator_name]
-        if tokens:
-            await send_push_notifications(
-                tokens, 
-                f"{meal_type} Time! 🍱", 
-                f"{creator_name} is going for {meal_type}. Joining?",
-                {"meal_type": meal_type, "creator_name": creator_name}
-            )
-        return {"status": "success", "meal": memory_meal}
-    except Exception as e:
-        logger.error(f"Create meal error: {e}")
-        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+async def start_meal(meal_type: str = Body(..., embed=True), creator_name: str = Body(..., embed=True)):
+    global active_meal
+    active_meal = {
+        "meal_type": meal_type,
+        "creator_name": creator_name,
+        "created_at": datetime.utcnow().isoformat(),
+        "joining": [],
+        "not_coming": [],
+        "active": True
+    }
+    
+    # Notify everyone else
+    others = [u["token"] for n, u in users_db.items() if u["token"] and n != creator_name]
+    if others:
+        asyncio.create_task(broadcast_push(
+            others, 
+            f"🍱 {meal_type} Time!", 
+            f"{creator_name} is calling for {meal_type}!", 
+            {"meal_type": meal_type, "creator_name": creator_name}
+        ))
+    return {"status": "ok", "meal": active_meal}
 
 @app.get("/meal/current")
-async def get_current_meal():
-    if not memory_meal:
-        return {"status": "no_active_meal"}
-    return memory_meal
+async def get_meal():
+    if not active_meal: return {"status": "no_active_meal"}
+    return active_meal
 
 @app.post("/meal/rsvp")
-async def rsvp_meal(request: RSVPRequest):
-    global memory_meal
-    if not memory_meal:
-        return JSONResponse(status_code=404, content={"status": "error", "message": "No active meal"})
+async def rsvp(name: str = Body(..., embed=True), status: str = Body(..., embed=True)):
+    global active_meal
+    if not active_meal: raise HTTPException(status_code=404, detail="No meal running")
     
-    status_field = "joining" if request.status == "join" else "not_coming"
-    other_field = "not_coming" if request.status == "join" else "joining"
-    
-    if request.name in memory_meal[other_field]:
-        memory_meal[other_field].remove(request.name)
-    if request.name not in memory_meal[status_field]:
-        memory_meal[status_field].append(request.name)
-        
-    return {"status": "success"}
+    if status == "join":
+        if name in active_meal["not_coming"]: active_meal["not_coming"].remove(name)
+        if name not in active_meal["joining"]: active_meal["joining"].append(name)
+    else:
+        if name in active_meal["joining"]: active_meal["joining"].remove(name)
+        if name not in active_meal["not_coming"]: active_meal["not_coming"].append(name)
+    return {"status": "ok"}
 
+# --- GLOBAL ERROR HANDLER ---
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled error: {exc}")
-    return JSONResponse(status_code=500, content={"status": "error", "message": "Internal Server Error"})
+async def catch_all(request: Request, exc: Exception):
+    logger.error(f"Failing request: {request.url} - Error: {exc}")
+    return JSONResponse(status_code=500, content={"status": "error", "message": str(exc)})
 
 if __name__ == "__main__":
     import uvicorn
