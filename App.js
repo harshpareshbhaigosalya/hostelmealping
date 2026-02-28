@@ -258,12 +258,13 @@ export default function App() {
       await Notifications.setNotificationChannelAsync('meal-pings', {
         name: 'Meal Pings',
         importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000],
-        lightColor: '#FF6B6B',
+        vibrationPattern: [0, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000],
+        lightColor: '#FF6EEF',
         lockscreenVisibility: Notifications.AndroidLockscreenVisibility.PUBLIC,
         bypassDnd: true,
         enableVibration: true,
         showBadge: true,
+        sound: 'default',
       });
     }
 

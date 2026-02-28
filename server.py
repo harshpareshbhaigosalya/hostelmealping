@@ -40,7 +40,8 @@ async def broadcast_push(tokens: List[str], title: str, body: str, data: dict = 
             messages.append({
                 "to": token, "title": title, "body": body,
                 "data": data or {}, "sound": "default",
-                "priority": "high", "categoryIdentifier": "MEAL_INVITATION"
+                "priority": "high", "categoryIdentifier": "MEAL_INVITATION",
+                "channelId": "meal-pings"
             })
     if not messages: return
     async with httpx.AsyncClient() as client:
