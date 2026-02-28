@@ -194,8 +194,16 @@ async def rsvp_meal(request: RSVPRequest):
         logger.error(f"RSVP error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Error handler for unexpected crashes
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Global error: {exc}")
+    return Body({"status": "error", "message": "Internal server error"}, status_code=500)
+
+# Entry point for Railway (Procfile or Dockerfile)
+port = int(os.environ.get("PORT", 8000))
+
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port, log_level="info", proxy_headers=True)
 
