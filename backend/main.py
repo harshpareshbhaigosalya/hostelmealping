@@ -7,14 +7,9 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 
-# Try to import from local database module
-try:
-    from backend.database import users_collection, meals_collection
-    DB_CONNECTED = True
-except ImportError:
-    # Fallback for local testing if database.py is missing or module path is different
-    DB_CONNECTED = False
-    print("Database module not found. Falling back to in-memory (not persistent).")
+# FORCE IN-MEMORY MODE ONLY - No Database connection to prevent 502/Startup errors
+DB_CONNECTED = False
+print("Running in In-Memory mode only for maximum stability.")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
