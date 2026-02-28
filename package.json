@@ -19,7 +19,6 @@
     "expo-notifications": "~0.32.16",
     "expo-status-bar": "~3.0.9",
     "express": "^4.21.2",
-    "lucide-react-native": "^0.378.0",
     "node-fetch": "^2.7.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
