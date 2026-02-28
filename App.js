@@ -25,8 +25,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
-// For PC testing, use localhost. For phone testing, use your IP.
-const API_BASE_URL = 'https://web-production-030ea.up.railway.app';
+// For PC/emulator testing, use localhost. For phone testing, use your laptop's LAN IP (e.g. http://192.168.x.x:8000).
+const API_BASE_URL = 'http://localhost:8000';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -169,6 +169,11 @@ export default function App() {
           creator_name: userName
         })
       });
+      if (!resp.ok) {
+        throw new Error('Server returned an error');
+      }
+      fetchCurrentMeal();
+    } catch (error) {
       Alert.alert('Connection Error', 'Could not reach the server. Please check your internet or if the backend is running.');
     } finally {
       setLoading(false);
@@ -410,7 +415,10 @@ export default function App() {
                 <View style={styles.avatarRow}>
                   {currentMeal.joining.length > 0 ? (
                     currentMeal.joining.map((name, i) => (
-                      <UserAvatar key={i} name={name} color="#51CF66" />
+                      <View key={i} style={styles.avatarWithName}>
+                        <UserAvatar name={name} color="#51CF66" />
+                        <Text style={styles.avatarNameText}>{name}</Text>
+                      </View>
                     ))
                   ) : (
                     <Text style={[styles.emptyGuest, { color: '#909296' }]}>Waiting for souls...</Text>
@@ -423,7 +431,10 @@ export default function App() {
                 <View style={styles.avatarRow}>
                   {currentMeal.not_coming.length > 0 ? (
                     currentMeal.not_coming.map((name, i) => (
-                      <UserAvatar key={i} name={name} color="#FF6B6B" />
+                      <View key={i} style={styles.avatarWithName}>
+                        <UserAvatar name={name} color="#FF6B6B" />
+                        <Text style={styles.avatarNameText}>{name}</Text>
+                      </View>
                     ))
                   ) : (
                     <Text style={[styles.emptyGuest, { color: '#909296' }]}>Nobody yet...</Text>
@@ -571,6 +582,8 @@ const styles = StyleSheet.create({
   avatarRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   avatarFixed: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   avatarTextFixed: { color: 'white', fontWeight: '900', fontSize: 16 },
+  avatarWithName: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  avatarNameText: { color: '#CED4DA', fontSize: 14, fontWeight: '600' },
 
   // Modal (Glassmorphism inspired)
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 25 },
