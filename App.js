@@ -11,7 +11,8 @@ import {
   Modal,
   SafeAreaView,
   Platform,
-  StatusBar
+  StatusBar,
+  Vibration
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
@@ -37,6 +38,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
   const [receivedData, setReceivedData] = useState(null);
+  const ringInterval = useRef(null);
 
   const notificationListener = useRef();
   const responseListener = useRef();
@@ -103,37 +105,51 @@ export default function App() {
 
   const registerUserOnBackend = async () => {
     try {
-      await fetch(`${API_BASE_URL}/register`, {
+      const resp = await fetch(`${API_BASE_URL}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: userName,
-          push_token: expoPushToken || `web-${Math.random().toString(36).substr(2, 9)}`
+          push_token: expoPushToken || `web-${Math.random().toString(36).substring(2, 9)}`
         })
       });
+      if (!resp.ok) throw new Error('Registration failed');
     } catch (error) {
-      console.error('Registration failed');
+      console.warn('Registration failed:', error.message);
     }
   };
 
   const fetchCurrentMeal = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/meal/current`);
-      const data = await response.json();
-      if (data.status !== 'no_active_meal') {
-        setCurrentMeal(data);
+      if (!response.ok) {
+        // Non-200 responses should not crash but clear the meal
+        setCurrentMeal(null);
+        return;
+      }
+
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const data = await response.json();
+        if (data.status !== 'no_active_meal') {
+          setCurrentMeal(data);
+        } else {
+          setCurrentMeal(null);
+        }
       } else {
+        // Not JSON (maybe 502 page), ignore
         setCurrentMeal(null);
       }
     } catch (error) {
-      console.error('Fetch meal failed');
+      console.warn('Fetch meal failed:', error.message);
+      setCurrentMeal(null);
     }
   };
 
   const triggerMeal = async (type) => {
     setLoading(true);
     try {
-      await fetch(`${API_BASE_URL}/meal`, {
+      const resp = await fetch(`${API_BASE_URL}/meal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -141,9 +157,7 @@ export default function App() {
           creator_name: userName
         })
       });
-      fetchCurrentMeal();
-    } catch (error) {
-      Alert.alert('Error', 'Could not notify others');
+      Alert.alert('Connection Error', 'Could not reach the server. Please check your internet or if the backend is running.');
     } finally {
       setLoading(false);
     }
@@ -155,9 +169,12 @@ export default function App() {
       if (!activeName) {
         activeName = await AsyncStorage.getItem('userName');
       }
-      if (!activeName) return;
+      if (!activeName) {
+        Alert.alert('Error', 'Please set your name first');
+        return;
+      }
 
-      await fetch(`${API_BASE_URL}/meal/rsvp`, {
+      const response = await fetch(`${API_BASE_URL}/meal/rsvp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -165,12 +182,32 @@ export default function App() {
           status: status
         })
       });
-      setNotificationModalVisible(false);
-      fetchCurrentMeal();
+
+      if (response.ok) {
+        setNotificationModalVisible(false);
+        fetchCurrentMeal();
+      } else {
+        Alert.alert('Error', 'Could not update your status');
+      }
     } catch (error) {
+      Alert.alert('Connection Error', 'Failed to update RSVP');
       console.error('RSVP failed', error);
     }
   };
+
+  // Ringing/Buzzing Loop while notification popup is shown
+  useEffect(() => {
+    if (notificationModalVisible) {
+      if (Platform.OS !== 'web') {
+        // Vibrate for 1s, pause 0.5s, loop = true
+        Vibration.vibrate([0, 1000, 500], true);
+      }
+    } else {
+      Vibration.cancel();
+    }
+    return () => Vibration.cancel();
+  }, [notificationModalVisible]);
+
 
   async function registerForPushNotificationsAsync() {
     if (Platform.OS === 'web') return null;
@@ -197,10 +234,12 @@ export default function App() {
       await Notifications.setNotificationChannelAsync('meal-pings', {
         name: 'Meal Pings',
         importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 500, 200, 500, 200, 500, 200, 500, 200, 500],
+        vibrationPattern: [0, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000],
         lightColor: '#FF6B6B',
         lockscreenVisibility: Notifications.AndroidLockscreenVisibility.PUBLIC,
         bypassDnd: true,
+        enableVibration: true,
+        showBadge: true,
       });
     }
 
@@ -297,13 +336,13 @@ export default function App() {
 
             <View style={styles.rsvpStack}>
               <TouchableOpacity
-                style={[styles.rsvpBtn, styles.btnIn, (currentMeal.joining.includes(userName)) && styles.activeIn]}
+                style={[styles.rsvpBtn, styles.btnIn, (currentMeal?.joining?.includes(userName)) && styles.activeIn]}
                 onPress={() => handleRSVP('join')}
               >
                 <Text style={[styles.rsvpBtnText, { color: '#51CF66' }]}>Counting me in</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.rsvpBtn, styles.btnOut, (currentMeal.not_coming.includes(userName)) && styles.activeOut]}
+                style={[styles.rsvpBtn, styles.btnOut, (currentMeal?.not_coming?.includes(userName)) && styles.activeOut]}
                 onPress={() => handleRSVP('not_coming')}
               >
                 <Text style={[styles.rsvpBtnText, { color: '#FF6B6B' }]}>Can't make it</Text>
@@ -312,20 +351,20 @@ export default function App() {
 
             <View style={styles.guestList}>
               <View style={styles.guestSection}>
-                <Text style={styles.guestTitle}>Joining ({currentMeal.joining.length})</Text>
+                <Text style={styles.guestTitle}>Joining ({currentMeal?.joining?.length || 0})</Text>
                 <View style={styles.avatarRow}>
-                  {currentMeal.joining.length === 0 ? <Text style={styles.emptyGuest}>No one yet</Text> :
-                    currentMeal.joining.map((name, i) => (
+                  {(currentMeal?.joining || []).length === 0 ? <Text style={styles.emptyGuest}>No one yet</Text> :
+                    (currentMeal?.joining || []).map((name, i) => (
                       <View key={i} style={styles.guestBadge}><Text style={styles.badgeText}>{name}</Text></View>
                     ))
                   }
                 </View>
               </View>
               <View style={styles.guestSection}>
-                <Text style={styles.guestTitle}>Not Coming ({currentMeal.not_coming.length})</Text>
+                <Text style={styles.guestTitle}>Not Coming ({currentMeal?.not_coming?.length || 0})</Text>
                 <View style={styles.avatarRow}>
-                  {currentMeal.not_coming.length === 0 ? <Text style={styles.emptyGuest}>No one yet</Text> :
-                    currentMeal.not_coming.map((name, i) => (
+                  {(currentMeal?.not_coming || []).length === 0 ? <Text style={styles.emptyGuest}>No one yet</Text> :
+                    (currentMeal?.not_coming || []).map((name, i) => (
                       <View key={i} style={[styles.guestBadge, { backgroundColor: '#F1F3F5' }]}><Text style={[styles.badgeText, { color: '#868E96' }]}>{name}</Text></View>
                     ))
                   }

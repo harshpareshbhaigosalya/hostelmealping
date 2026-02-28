@@ -1,11 +1,25 @@
 import httpx
-from fastapi import FastAPI, HTTPException, Body
+import os
+import logging
+from fastapi import FastAPI, HTTPException, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 
-app = FastAPI(title="Hostel Meal Ping API (In-Memory)")
+# Try to import from local database module
+try:
+    from backend.database import users_collection, meals_collection
+    DB_CONNECTED = True
+except ImportError:
+    # Fallback for local testing if database.py is missing or module path is different
+    DB_CONNECTED = False
+    print("Database module not found. Falling back to in-memory (not persistent).")
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Hostel Meal Ping API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,15 +38,13 @@ class RSVPRequest(BaseModel):
     name: str
     status: str
 
-# --- IN-MEMORY DATABASE ---
-# In a real app, this would be MongoDB. For local PC testing, we use variables.
-users = {} # {push_token: {"name": str, "updated_at": datetime}}
-current_active_meal = None # Will store a dict
+# In-memory fallback if DB fails
+memory_users = {} 
+memory_meal = None
 
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
 async def send_push_notifications(tokens: List[str], title: str, body: str, data: dict = None):
-    # Only try to send if we have tokens and internet
     if not tokens:
         return
         
@@ -46,7 +58,6 @@ async def send_push_notifications(tokens: List[str], title: str, body: str, data
                 "data": data or {},
                 "sound": "default",
                 "priority": "high",
-                "ttl": 3600,
                 "categoryIdentifier": "MEAL_INVITATION"
             })
     
@@ -55,75 +66,141 @@ async def send_push_notifications(tokens: List[str], title: str, body: str, data
 
     async with httpx.AsyncClient() as client:
         try:
-            await client.post(EXPO_PUSH_URL, json=messages)
+            resp = await client.post(EXPO_PUSH_URL, json=messages)
+            logger.info(f"Push response: {resp.status_code}")
         except Exception as e:
-            print(f"Push notification skipped (likely no tokens or internet): {e}")
+            logger.error(f"Push notification failed: {e}")
+
+@app.get("/")
+async def health_check():
+    return {"status": "ok", "timestamp": datetime.utcnow(), "db_connected": DB_CONNECTED}
 
 @app.post("/register")
 async def register_user(user: UserRegistration):
-    # In-memory registration
-    token = user.push_token or f"local-user-{user.name}"
-    users[token] = {"name": user.name, "updated_at": datetime.utcnow(), "push_token": user.push_token}
-    return {"status": "success"}
+    try:
+        registration = {
+            "name": user.name,
+            "push_token": user.push_token,
+            "updated_at": datetime.utcnow()
+        }
+        
+        if DB_CONNECTED:
+            await users_collection.update_one(
+                {"name": user.name},
+                {"$set": registration},
+                upsert=True
+            )
+        else:
+            memory_users[user.name] = registration
+            
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Registration error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/meal")
 async def create_meal(meal_type: str = Body(..., embed=True), creator_name: str = Body(..., embed=True)):
-    global current_active_meal
-    
-    # Create new meal in memory
-    current_active_meal = {
-        "meal_type": meal_type,
-        "creator_name": creator_name,
-        "created_at": datetime.utcnow(),
-        "joining": [],
-        "not_coming": [],
-        "active": True
-    }
-    
-    # Notify all users who have a real push token
-    tokens = [u["push_token"] for u in users.values() if u.get("push_token")]
-    
-    if tokens:
-        await send_push_notifications(
-            tokens, 
-            f"{meal_type} Time!", 
-            f"{creator_name} is going for {meal_type}. Are you coming?",
-            {"meal_type": meal_type, "creator_name": creator_name}
-        )
+    global memory_meal
+    try:
+        meal_data = {
+            "meal_type": meal_type,
+            "creator_name": creator_name,
+            "created_at": datetime.utcnow().isoformat(),
+            "joining": [],
+            "not_coming": [],
+            "active": True
+        }
         
-    return {"status": "success", "meal": meal_type}
+        if DB_CONNECTED:
+            # Set all other meals to inactive first
+            await meals_collection.update_many({"active": True}, {"$set": {"active": False}})
+            await meals_collection.insert_one(meal_data)
+            # Remove _id for JSON serializability in current meal view
+            if "_id" in meal_data: del meal_data["_id"]
+        else:
+            memory_meal = meal_data
+        
+        # Notify users
+        tokens = []
+        if DB_CONNECTED:
+            cursor = users_collection.find({"push_token": {"$ne": None}})
+            async for user in cursor:
+                if user["push_token"] and user["name"] != creator_name:
+                    tokens.append(user["push_token"])
+        else:
+            tokens = [u["push_token"] for u in memory_users.values() if u.get("push_token") and u["name"] != creator_name]
+
+        if tokens:
+            await send_push_notifications(
+                tokens, 
+                f"{meal_type} Time! 🍱", 
+                f"{creator_name} is going for {meal_type}. Joining?",
+                {"meal_type": meal_type, "creator_name": creator_name}
+            )
+            
+        return {"status": "success", "meal": meal_data}
+    except Exception as e:
+        logger.error(f"Create meal error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/meal/current")
 async def get_current_meal():
-    if not current_active_meal:
-        return {"status": "no_active_meal"}
-    return current_active_meal
+    try:
+        if DB_CONNECTED:
+            # Find the most recent active meal (within last 2 hours)
+            time_limit = datetime.utcnow() - timedelta(hours=2)
+            meal = await meals_collection.find_one({"active": True})
+            
+            # If no active meal or old meal, return no_active
+            if not meal:
+                return {"status": "no_active_meal"}
+            
+            # Format for JSON
+            meal["_id"] = str(meal["_id"])
+            return meal
+        else:
+            if not memory_meal:
+                return {"status": "no_active_meal"}
+            return memory_meal
+    except Exception as e:
+        logger.error(f"Fetch current meal error: {e}")
+        return {"status": "error", "detail": "Database error"}
 
 @app.post("/meal/rsvp")
 async def rsvp_meal(request: RSVPRequest):
-    global current_active_meal
-    if not current_active_meal:
-        raise HTTPException(status_code=404, detail="No active meal event")
-    
-    name = request.name
-    status = request.status # "join" or "not_coming"
-    
-    # Remove from both lists first
-    if name in current_active_meal["joining"]:
-        current_active_meal["joining"].remove(name)
-    if name in current_active_meal["not_coming"]:
-        current_active_meal["not_coming"].remove(name)
-    
-    # Add to the correct list
-    if status == "join":
-        current_active_meal["joining"].append(name)
-    else:
-        current_active_meal["not_coming"].append(name)
-    
-    return {"status": "success"}
+    global memory_meal
+    try:
+        status_field = "joining" if request.status == "join" else "not_coming"
+        other_field = "not_coming" if request.status == "join" else "joining"
+        
+        if DB_CONNECTED:
+            # Atomic update: remove from one list, add to another if not already there
+            res = await meals_collection.update_one(
+                {"active": True},
+                {
+                    "$addToSet": {status_field: request.name},
+                    "$pull": {other_field: request.name}
+                }
+            )
+            if res.matched_count == 0:
+                raise HTTPException(status_code=404, detail="No active meal event")
+        else:
+            if not memory_meal:
+                raise HTTPException(status_code=404, detail="No active meal event")
+            
+            if request.name in memory_meal[other_field]:
+                memory_meal[other_field].remove(request.name)
+            if request.name not in memory_meal[status_field]:
+                memory_meal[status_field].append(request.name)
+        
+        return {"status": "success"}
+    except HTTPException: raise
+    except Exception as e:
+        logger.error(f"RSVP error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
-    import os
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
