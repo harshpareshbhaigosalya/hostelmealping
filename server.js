@@ -163,7 +163,12 @@ app.use((err, req, res, next) => {
     res.status(500).json({ status: 'error', message: 'Internal server error' });
 });
 
-// --- START SERVER ---
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Hostel Meal Ping server running on port ${PORT}`);
-});
+// --- START SERVER (local dev only) ---
+if (process.env.VERCEL !== '1') {
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🚀 Hostel Meal Ping server running on port ${PORT}`);
+    });
+}
+
+// Export for Vercel serverless
+module.exports = app;
