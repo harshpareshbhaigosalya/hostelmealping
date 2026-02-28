@@ -11,7 +11,7 @@ app.use(cors());
 app.use(express.json());
 
 // --- MONGODB CONNECTION ---
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://mhetmodi_db_user:<db_password>@cluster0.smot8y4.mongodb.net/?appName=Cluster0';
+const MONGODB_URI = 'mongodb+srv://mhetmodi_db_user:Gk2SgZWP7fegCEyN@cluster0.smot8y4.mongodb.net/?appName=Cluster0';
 const DB_NAME = 'hostelmealping';
 
 let cachedClient = null;
