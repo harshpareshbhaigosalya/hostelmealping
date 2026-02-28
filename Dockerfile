@@ -2,16 +2,18 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Copy requirements and install
+# Copy and install dependencies
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the entire project to ensure modules are found
+# Copy all files
 COPY . .
 
-# Ensure the app can find the 'backend' package
+# Ensure the root folder is in the python path
 ENV PYTHONPATH=/app
 
-# Start the application using uvicorn directly
-# We use the shell form to allow $PORT substitution
-CMD uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Expose the port (informative only)
+EXPOSE 8000
+
+# Start the server using the entry point script
+CMD ["python", "run_server.py"]
